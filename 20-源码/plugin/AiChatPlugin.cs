@@ -18,11 +18,11 @@ using UnityEngine;
 
 namespace RF.AiChat
 {
-    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.0")]
+    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.1")]
     public class AiChatPlugin : BaseUnityPlugin
     {
         public const string GUID = "rf.aichat.bridge";
-        public const string VERSION = "1.6.0";
+        public const string VERSION = "1.6.1";
 
         internal static ManualLogSource Log;
         internal static AiChatPlugin Instance;
@@ -76,6 +76,7 @@ namespace RF.AiChat
         internal static ConfigEntry<float> CfgBotCooldown;
         internal static ConfigEntry<int> CfgMaxQueue;
         internal static ConfigEntry<int> CfgMaxTokens;
+        internal static ConfigEntry<int> CfgMaxLineChars;   // BUG-103：单条台词最大字符数
         internal static ConfigEntry<float> CfgMaxDistance;
         internal static ConfigEntry<string> CfgExportDir;
 
@@ -182,6 +183,8 @@ namespace RF.AiChat
                 "待生成队列上限，超出则丢弃新事件");
             CfgMaxTokens = Config.Bind("Chat", "MaxTokens", 1024,
                 "单条回复的最大 token 数（越小越快越省）");
+            CfgMaxLineChars = Config.Bind("Chat", "MaxLineChars", 160,
+                "单条台词最大字符数（超过会尽量按句末标点截断；默认 160，建议 80-200）");
             CfgMaxDistance = Config.Bind("Chat", "MaxDistanceMeters", 80f,
                 "只对玩家这个距离内的阵亡做出反应（友军误伤不受此限；设很大则全图都反应）");
             CfgExportDir = Config.Bind("Log", "ExportDir",
@@ -256,6 +259,37 @@ namespace RF.AiChat
                     h.Patch(mExpose,
                         prefix: new HarmonyMethod(typeof(Patches).GetMethod("ExposeTypes_Prefix", BindingFlags.Static | BindingFlags.NonPublic)));
                 }
+                // 2) BUG-104：聊天输入期间屏蔽游戏全局热键（M 地图 / Tab 记分板 / Esc 菜单等）
+                try
+                {
+                    Type steelInput = AccessTools.TypeByName("SteelInput");
+                    if (steelInput != null)
+                    {
+                        MethodInfo pBtn = typeof(Patches).GetMethod("SteelInput_Button_Prefix",
+                            BindingFlags.Static | BindingFlags.NonPublic);
+                        int patchedBtn = 0;
+                        string[] btnNames = new string[] { "GetButton", "GetButtonDown", "GetButtonUp" };
+                        for (int bi = 0; bi < btnNames.Length; bi++)
+                        {
+                            MethodInfo bm = AccessTools.Method(steelInput, btnNames[bi]);
+                            if (bm != null && pBtn != null)
+                            {
+                                h.Patch(bm, prefix: new HarmonyMethod(pBtn));
+                                patchedBtn++;
+                            }
+                        }
+                        Log.LogInfo("[AiChat][输入] 打字期间热键屏蔽补丁已安装：" + patchedBtn + " 个方法");
+                    }
+                    else
+                    {
+                        Log.LogWarning("[AiChat][输入] 未找到 SteelInput，打字热键屏蔽补丁跳过");
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log.LogWarning("[AiChat][输入] 安装热键屏蔽补丁失败：" + e.GetType().Name + " : " + e.Message);
+                }
+
                 Log.LogInfo("[AiChat][通道] Harmony 补丁安装完成，等待游戏创建脚本引擎…");
             }
             catch (Exception e)
@@ -283,6 +317,21 @@ namespace RF.AiChat
                     Log.LogError("[AiChat][通道] 注册类型失败：" + e.GetType().Name + " : " + e.Message);
                 }
                 return true; // 继续执行游戏原本的注册
+            }
+
+            // BUG-104：聊天输入期间让游戏"看不到"按键，避免打字触发地图/记分板/菜单等
+            internal static bool SteelInput_Button_Prefix(ref bool __result)
+            {
+                try
+                {
+                    if (AiChatBridgeApi.IsInputActive())
+                    {
+                        __result = false;
+                        return false;   // 跳过游戏原方法
+                    }
+                }
+                catch (Exception) { }
+                return true;
             }
 
             // 对应 Lua.Proxy.Registrar.ExposeTypes(Script script)

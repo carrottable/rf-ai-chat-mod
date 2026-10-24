@@ -203,6 +203,22 @@ namespace RF.AiChat
         /// <summary>插件真的拿到键盘焦点了吗（Lua 用它决定是否接管按键）。</summary>
         public static bool InputFocused() { return _focusedNow; }
 
+        /// <summary>当前是否处于"聊天输入"状态（打字中）：用于屏蔽游戏全局热键（BUG-104）。</summary>
+        public static bool IsInputActive()
+        {
+            if (_wantFocus || _focusedNow) return true;
+            try
+            {
+                EventSystem es = EventSystem.current;
+                if (es == null) return false;
+                GameObject sel = es.currentSelectedGameObject;
+                if (sel == null) return false;
+                if (_inputField != null && sel == _inputField.gameObject) return true;
+                return sel.GetComponent<InputField>() != null;
+            }
+            catch (Exception) { return false; }
+        }
+
         /// <summary>输入框里的文字（Lua 侧显示与发送都以它为准）。</summary>
         public static string InputText()
         {

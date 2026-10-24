@@ -725,7 +725,15 @@ namespace RF.AiChat
                 }
                 else
                 {
-                    BotInfo mate = RandomBot();
+                    BotInfo mate = null;
+                    List<BotInfo> fallbackPool = new List<BotInfo>();
+                    List<BotInfo> fallbackAll = AllBots();
+                    for (int fi = 0; fi < fallbackAll.Count; fi++)
+                    {
+                        BotInfo fb = fallbackAll[fi];
+                        if (fb != null && !fb.IsPlayer && fb.Team == vb.Team) fallbackPool.Add(fb);
+                    }
+                    if (fallbackPool.Count > 0) mate = fallbackPool[UnityEngine.Random.Range(0, fallbackPool.Count)];
                     if (mate != null && !mate.IsPlayer)
                     {
                         _pendingReason = "玩家阵亡 → 队友反应";
@@ -745,14 +753,15 @@ namespace RF.AiChat
                     for (int i = 0; i < pool2.Count; i++)
                     {
                         BotInfo m2 = pool2[i];
-                        if (m2 != null && !m2.IsPlayer && m2.Team != vb.Team) mates2.Add(m2);
+                        if (m2 != null && !m2.IsPlayer && m2.Team == vb.Team) mates2.Add(m2);   // BUG-102：必须同队（原为 !=，选到了敌人）
                     }
                     if (mates2.Count > 0) mate2 = mates2[UnityEngine.Random.Range(0, mates2.Count)];
                     if (mate2 != null && (!(kb != null) || mate2.Name != kb.Name))
                     {
                         _pendingPlayerInvolved = true;
                         _pendingReason = "玩家阵亡 → 队友安慰";
-                        AiChatPlugin.Log.LogInfo("[AIChat][必回] 规则6 队友安慰回应入队：" + mate2.Name);
+                        AiChatPlugin.Log.LogInfo("[AIChat][必回] 规则6 队友安慰回应入队：" + mate2.Name
+                            + "（team=" + mate2.Team + "，playerTeam=" + vb.Team + "）");
                         EnqueueAt(mate2, "吐槽", victimName, 0,
                             BuildSystem(mate2, "吐槽"),
                             "事件：你的队友（玩家）" + victimName + " 刚才被 " + (kb != null ? kb.Name : "不明火力")
@@ -1590,6 +1599,28 @@ namespace RF.AiChat
             }
         }
 
+        // BUG-103：按句末标点截断，避免模型回复说到一半被硬切
+        private static string ClampAtSentence(string t, int maxLen)
+        {
+            int windowStart = maxLen / 2;
+            int scanTo = t.Length < maxLen ? t.Length : maxLen;
+            int lastEnd = -1;
+            for (int i = scanTo - 1; i >= windowStart; i--)
+            {
+                char c = t[i];
+                if (c == '。' || c == '！' || c == '？' || c == '；' || c == '…'
+                    || c == '.' || c == '!' || c == '?' || c == ';')
+                {
+                    lastEnd = i + 1;
+                    break;
+                }
+            }
+            if (lastEnd > 0) return t.Substring(0, lastEnd).TrimEnd();
+            string cut = t.Substring(0, scanTo).TrimEnd();
+            if (cut.EndsWith("…")) return cut;
+            return cut + "…";
+        }
+
         private static string Sanitize(string s)
         {
             if (s == null) return "";
@@ -1610,7 +1641,19 @@ namespace RF.AiChat
             t = t.Trim('"', '\'', '“', '”', '‘', '’', ' ');
             // TMP 会把尖括号当富文本，必须替换
             t = t.Replace("<", "＜").Replace(">", "＞");
-            if (t.Length > 60) t = t.Substring(0, 60);
+            // BUG-103：不再硬截 60 字符；默认 160，可配置，优先按句末标点截断
+            int maxLen = 160;
+            try
+            {
+                if (AiChatPlugin.CfgMaxLineChars != null)
+                {
+                    maxLen = AiChatPlugin.CfgMaxLineChars.Value;
+                    if (maxLen < 40) maxLen = 40;
+                    if (maxLen > 200) maxLen = 200;
+                }
+            }
+            catch (Exception) { }
+            if (t.Length > maxLen) t = ClampAtSentence(t, maxLen);
             return t.Trim();
         }
 

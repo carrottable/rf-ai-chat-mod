@@ -47,8 +47,8 @@ fi
 
 step "4/4 打包游戏侧模组（.rfc）"
 cd "$PROJ/20-源码/tools"
-DONOR="${RFAICHAT_DONOR_RFC:-}"   # 可选：设置环境变量指向一个可用的载体 .rfc（版权原因不随仓库分发）
-if [ -n "$DONOR" ] && [ -f "$DONOR" ]; then
+DONOR="/f/RAVENFIELDMOD/mod分类/未分类MOD/EA25-/脚本/无前置/A组/2070156114/chatfeedmutator.rfc"
+if [ -f "$DONOR" ]; then
   if PYTHONIOENCODING=utf-8 python make_test_mod.py \
        --donor "$DONOR" \
        --lua "../lua/RFAiChat.lua" \
@@ -63,7 +63,7 @@ if [ -n "$DONOR" ] && [ -f "$DONOR" ]; then
     tail -12 /tmp/_pack.log | sed 's/^/     /'
   fi
 else
-  echo "  ⚠️ 未提供载体 .rfc（RFAICHAT_DONOR_RFC），跳过打包步骤（源码/编译/冒烟测试不受影响）"
+  bad "找不到载体 .rfc，打包步骤无法执行（不能算作全绿；请确认本地模组库路径）"
 fi
 
 echo

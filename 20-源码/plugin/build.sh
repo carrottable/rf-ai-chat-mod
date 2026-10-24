@@ -7,7 +7,11 @@ set -e
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJ_DIR="$(cd "$SRC_DIR/../.." && pwd)"          # RF对话脚本AI接入MOD
 OUT_DIR="$PROJ_DIR/30-构建产物"
-GAME="${RAVENFIELD_DIR:-/c/Program Files (x86)/Steam/steamapps/common/Ravenfield}"   # 改成你的游戏根目录，或设环境变量 RAVENFIELD_DIR
+if [ -d "/e/SteamLibrary/steamapps/common/Ravenfield" ]; then
+  GAME="/e/SteamLibrary/steamapps/common/Ravenfield"
+else
+  GAME="/f/SteamLibrary/steamapps/common/Ravenfield"
+fi
 MANAGED="$GAME/ravenfield_Data/Managed"
 BEPCORE="$GAME/BepInEx/core"
 CSC="/c/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -52,7 +56,6 @@ cp "$DLL" "$PLUGIN_DIR/"
 
 echo "[3/3] 确保配置文件存在（不覆盖已填写的 Key） ..."
 CFG="$GAME/BepInEx/config/rf.aichat.bridge.cfg"
-# 说明：本脚本假定 BepInEx 5.4.23.5 已安装；部署步骤可用 DEPLOY=0 跳过。
 if [ ! -f "$CFG" ]; then
   cat > "$CFG" <<'EOF'
 [AI]

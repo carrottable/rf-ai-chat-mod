@@ -24,7 +24,7 @@ import sys
 
 import UnityPy
 
-GAME_MODS = r"os.environ.get("RAVENFIELD_MODS_DIR", "")"
+GAME_MODS = r"F:\SteamLibrary\steamapps\common\Ravenfield\ravenfield_Data\mods"
 
 
 def load_env(path):

@@ -25,7 +25,7 @@ import UnityPy
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_LUA = os.path.join(PROJ, "20-源码", "lua", "RFAiChat.lua")
-DEFAULT_RFC = r"os.environ.get("RFAICHAT_RFC", "")"
+DEFAULT_RFC = r"F:\SteamLibrary\steamapps\common\Ravenfield\ravenfield_Data\mods\RFAiChatUI\RFAiChatUI.rfc"
 MARK = 'behaviour("RFAiChat")'
 
 

@@ -4,6 +4,8 @@
 > AI soldiers actually talk, generated live by a real LLM: event-driven chatter, four persona tiers,
 > @-mention replies, battle reports, debug console, ZH/EN bilingual.
 
+> 当前版本：**v1.1.1**（2026-10-24 热修：修复消息截断、打字热键冲突、安慰者阵营）
+
 ![封面](docs/images/cover.png)
 
 ## 功能 / Features
