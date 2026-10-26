@@ -92,6 +92,12 @@ namespace RF.AiChat
         private static bool _bilingualDone;
         private static GameObject _deadAiRow;
         private static GameObject _reportRow;
+        private static GameObject _quotaBlueRow;
+        private static GameObject _quotaRedRow;
+        private static TMP_InputField _quotaBlueInput;
+        private static TMP_InputField _quotaRedInput;
+        private static TMP_FontAsset _cjkFallback;
+        private static bool _cjkFallbackTried;
 
         // ★ 第87轮：直接检测模组设置面板是否存在（退出对局再进设置也能恢复）
         internal static bool PageVisible()
@@ -126,6 +132,7 @@ namespace RF.AiChat
                 HideMeaninglessToggle(content);
                 EnsureDeadAiToggle(content);
                 EnsureAutoReportRow(content);
+                EnsureQuotaRows(content);
                 if (_rows.Count == 3 && _rows[0] != null && _rows[0].transform.parent == content)
                 {
                     RefreshLabels();
@@ -181,7 +188,9 @@ namespace RF.AiChat
                 for (int i = 0; i < all.Length; i++)
                 {
                     TextMeshProUGUI t = all[i];
-                    if (t == null || t.text == null) continue;
+                    if (t == null) continue;
+                    EnsureCjkFallback(t.font);
+                    if (t.text == null) continue;
                     string cur = t.text;
                     if (cur.Contains(" / ") || cur.Length == 0) continue;
                     for (int k = 0; k < map.GetLength(0); k++)
@@ -480,7 +489,7 @@ namespace RF.AiChat
                 for (int i = 0; i < tmps.Length; i++)
                 {
                     if (tmps[i] == null || tmps[i] == valueTmp) continue;
-                    if (tmps[i].text != null && tmps[i].text.Contains("聊天字号")) { tmps[i].text = "自动战报间隔 / Auto report"; break; }
+                    if (tmps[i].text != null && tmps[i].text.Contains("聊天字号")) { tmps[i].text = "AI 战报间隔 / Auto report"; break; }
                 }
                 if (valueTmp == null) { _reportRow = clone; return; }
                 if (inClone != null) inClone.enabled = false;
@@ -505,6 +514,7 @@ namespace RF.AiChat
                 TextMeshProUGUI lt = lgo.GetComponent<TextMeshProUGUI>();
                 lt.font = valueTmp.font;
                 lt.fontSize = valueTmp.fontSize;
+                EnsureCjkFallback(lt.font);
                 lt.alignment = TextAlignmentOptions.Center;
                 lt.enableWordWrapping = false;
                 lt.color = new Color(0.92f, 0.94f, 0.97f, 1f);
@@ -549,6 +559,99 @@ namespace RF.AiChat
             }
         }
 
+        // ============================================================ v1.1.2 主动发言名额（两行数字输入）
+        private static void EnsureQuotaRows(Transform content)
+        {
+            EnsureQuotaRow(content, "AI 说话名额·鹰队（蓝） / Blue active speakers", true, ref _quotaBlueRow, ref _quotaBlueInput);
+            EnsureQuotaRow(content, "AI 说话名额·鸦队（红） / Red active speakers", false, ref _quotaRedRow, ref _quotaRedInput);
+        }
+
+        private static void EnsureQuotaRow(Transform content, string title, bool blue, ref GameObject rowField, ref TMP_InputField inputField)
+        {
+            try
+            {
+                int cur = 30;
+                try
+                {
+                    if (blue && AiChatPlugin.CfgActiveSpeakerLimitBlue != null) cur = AiChatPlugin.CfgActiveSpeakerLimitBlue.Value;
+                    if (!blue && AiChatPlugin.CfgActiveSpeakerLimitRed != null) cur = AiChatPlugin.CfgActiveSpeakerLimitRed.Value;
+                }
+                catch (Exception) { }
+                if (cur < 0) cur = 0;
+                if (cur > 128) cur = 128;
+                if (rowField != null && rowField.transform.parent == content)
+                {
+                    if (inputField != null && !inputField.isFocused && inputField.text != cur.ToString())
+                        inputField.text = cur.ToString();
+                    return;
+                }
+                GameObject template = null;
+                for (int i = 0; i < content.childCount && template == null; i++)
+                {
+                    Transform row = content.GetChild(i);
+                    if (row == null) continue;
+                    string label = RowLabel(row);
+                    if (label != null && label.Contains("聊天字号")) template = row.gameObject;
+                }
+                if (template == null) return;
+                GameObject clone = UnityEngine.Object.Instantiate(template, content);
+                clone.name = blue ? "AIChatQuotaBlueRow" : "AIChatQuotaRedRow";
+                int idxRow = (_reportRow != null && _reportRow.transform.parent == content)
+                    ? _reportRow.transform.GetSiblingIndex() + (blue ? 1 : 2) : template.transform.GetSiblingIndex() + 1;
+                clone.transform.SetSiblingIndex(idxRow);
+                TMP_InputField input = clone.GetComponentInChildren<TMP_InputField>(true);
+                TextMeshProUGUI valueTmp = input != null ? (input.textComponent as TextMeshProUGUI) : null;
+                TextMeshProUGUI[] tmps = clone.GetComponentsInChildren<TextMeshProUGUI>(true);
+                for (int i = 0; i < tmps.Length; i++)
+                {
+                    if (tmps[i] == null || tmps[i] == valueTmp) continue;
+                    if (tmps[i].text != null && tmps[i].text.Contains("聊天字号"))
+                    {
+                        tmps[i].text = title;
+                        EnsureCjkFallback(tmps[i].font);
+                        break;
+                    }
+                }
+                if (input == null) { rowField = clone; return; }
+                input.enabled = true;
+                input.interactable = true;
+                try { input.readOnly = false; } catch (Exception) { }
+                input.characterValidation = TMP_InputField.CharacterValidation.Integer;
+                input.contentType = TMP_InputField.ContentType.IntegerNumber;
+                input.characterLimit = 3;
+                try { input.onValueChanged.RemoveAllListeners(); } catch (Exception) { }
+                try { input.onEndEdit.RemoveAllListeners(); } catch (Exception) { }
+                try { input.onSubmit.RemoveAllListeners(); } catch (Exception) { }
+                input.text = cur.ToString();
+                input.onEndEdit.AddListener(new UnityEngine.Events.UnityAction<string>(delegate (string v)
+                {
+                    int n = cur;
+                    int.TryParse(v, out n);
+                    if (n < 0) n = 0;
+                    if (n > 128) n = 128;
+                    try
+                    {
+                        if (blue && AiChatPlugin.CfgActiveSpeakerLimitBlue != null) AiChatPlugin.CfgActiveSpeakerLimitBlue.Value = n;
+                        if (!blue && AiChatPlugin.CfgActiveSpeakerLimitRed != null) AiChatPlugin.CfgActiveSpeakerLimitRed.Value = n;
+                        if (AiChatPlugin.Instance != null) AiChatPlugin.Instance.Config.Save();
+                    }
+                    catch (Exception) { }
+                    if (input != null) input.text = n.ToString();
+                    AiChatPlugin.Log.LogInfo("[发言名额] " + (blue ? "蓝队" : "红队")
+                        + " 主动发言名额已设为 " + n + "（下一局生效）");
+                }));
+                rowField = clone;
+                inputField = input;
+                if (AiChatPlugin.Log != null)
+                    AiChatPlugin.Log.LogInfo("[发言名额] 设置页行已插入：" + (blue ? "蓝队" : "红队") + "（当前 " + cur + "）");
+            }
+            catch (Exception e)
+            {
+                if (AiChatPlugin.Log != null)
+                    AiChatPlugin.Log.LogWarning("[发言名额] 行创建失败：" + e.Message);
+            }
+        }
+
         // ★ 第74轮：基础设置里加        // ★ 第74轮：基础设置里加"允许死亡/未部署 AI 发言"勾选框（克隆"开启 AI 对话"那一行）
         private static void EnsureDeadAiToggle(Transform content)
         {
@@ -588,7 +691,8 @@ namespace RF.AiChat
                     if (tmps[i] == null || tmps[i].text == null) continue;
                     if (tmps[i].text.Contains("开启 AI 对话"))
                     {
-                        tmps[i].text = "允许死亡AI发言 / Dead AI speak";
+                        tmps[i].text = "允许死亡AI说话 / Dead AI speak";
+                        EnsureCjkFallback(tmps[i].font);
                         break;
                     }
                 }
@@ -660,6 +764,54 @@ namespace RF.AiChat
             {
                 if (AiChatPlugin.Log != null) AiChatPlugin.Log.LogWarning("[AIChat][名色] 插入失败：" + e.Message);
             }
+        }
+
+        // 游戏自带的 TMP 字体只覆盖游戏内用到的字；我们插入的“主动发言/自动战报”等新词
+        // 可能缺字（动、发等）。这里从系统字体创建一个 TMP fallback，只给缺字时使用。
+        // 关掉 XUnity.AutoTranslator 后它原本提供的 fallback 没了，必须由我们自己补。
+        private static void EnsureCjkFallback(TMP_FontAsset baseFont)
+        {
+            if (_cjkFallback == null && !_cjkFallbackTried)
+            {
+                _cjkFallbackTried = true;
+                try
+                {
+                    Font osFont = null;
+                    string[] names = new string[] { "Microsoft YaHei", "Microsoft YaHei UI", "SimHei", "SimSun" };
+                    for (int i = 0; i < names.Length && osFont == null; i++)
+                    {
+                        try { osFont = Font.CreateDynamicFontFromOSFont(names[i], 20); } catch (Exception) { }
+                    }
+                    if (osFont != null)
+                    {
+                        TMP_FontAsset fa = TMP_FontAsset.CreateFontAsset(osFont);
+                        if (fa != null)
+                        {
+                            fa.atlasPopulationMode = AtlasPopulationMode.Dynamic;
+                            fa.isMultiAtlasTexturesEnabled = true;
+                            _cjkFallback = fa;
+                            if (AiChatPlugin.Log != null)
+                                AiChatPlugin.Log.LogInfo("[AIChat][字体] 已创建中文 fallback 字体（来自系统字体，用于补 动/发 等缺字）");
+                        }
+                    }
+                    if (_cjkFallback == null && AiChatPlugin.Log != null)
+                        AiChatPlugin.Log.LogWarning("[AIChat][字体] 未找到可用的系统中文字体，无法补缺字");
+                }
+                catch (Exception e)
+                {
+                    if (AiChatPlugin.Log != null)
+                        AiChatPlugin.Log.LogWarning("[AIChat][字体] 创建中文 fallback 失败：" + e.Message);
+                }
+            }
+            if (_cjkFallback == null || baseFont == null) return;
+            try
+            {
+                if (baseFont.fallbackFontAssetTable == null)
+                    baseFont.fallbackFontAssetTable = new System.Collections.Generic.List<TMP_FontAsset>();
+                if (!baseFont.fallbackFontAssetTable.Contains(_cjkFallback))
+                    baseFont.fallbackFontAssetTable.Add(_cjkFallback);
+            }
+            catch (Exception) { }
         }
 
         private static void BuildRow(GameObject row, string title, int style)

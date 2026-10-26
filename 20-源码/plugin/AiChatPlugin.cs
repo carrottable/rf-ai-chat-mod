@@ -18,11 +18,11 @@ using UnityEngine;
 
 namespace RF.AiChat
 {
-    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.1")]
+    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.2")]
     public class AiChatPlugin : BaseUnityPlugin
     {
         public const string GUID = "rf.aichat.bridge";
-        public const string VERSION = "1.6.1";
+        public const string VERSION = "1.6.2";
 
         internal static ManualLogSource Log;
         internal static AiChatPlugin Instance;
@@ -54,6 +54,8 @@ namespace RF.AiChat
         internal static ConfigEntry<int> CfgSystemReplyPerTeam;  // ★ 第74轮：每队派几名 AI 回应系统播报
         internal static ConfigEntry<bool> CfgAllowDeadAI;        // ★ 第74轮：是否允许死亡/未部署 AI 发言
         internal static ConfigEntry<int> CfgAutoReportSeconds;   // ★ 第77轮：自动战报间隔（秒）
+        internal static ConfigEntry<int> CfgActiveSpeakerLimitBlue;  // v1.1.2：蓝队主动发言名额
+        internal static ConfigEntry<int> CfgActiveSpeakerLimitRed;   // v1.1.2：红队主动发言名额
         internal static ConfigEntry<bool> CfgVerboseLog;         // ★ 第89轮：详细日志（默认关，减少日志 I/O 卡顿）
         // ★ 第50轮：人设分配（比例/时间）自定义
         internal static ConfigEntry<int> CfgPersonaRatio1;
@@ -140,6 +142,10 @@ namespace RF.AiChat
                 "详细日志：每条 AI 台词的原始响应/送出记录/时序都会写日志。默认 false（减少日志 I/O 造成的卡顿）；排查问题时再开");
             CfgAutoReportSeconds = Config.Bind("Chat", "AutoReportSeconds", 180,
                 "自动战报间隔（秒，默认 180；可在 MOD 设置里改）");
+            CfgActiveSpeakerLimitBlue = Config.Bind("Chat", "ActiveSpeakerLimitBlue", 30,
+                "蓝队（鹰队）主动发言名额：0-128，默认 30；名单外 AI 只会在击杀玩家/被玩家击杀时发言");
+            CfgActiveSpeakerLimitRed = Config.Bind("Chat", "ActiveSpeakerLimitRed", 30,
+                "红队（鸦队）主动发言名额：0-128，默认 30；名单外 AI 只会在击杀玩家/被玩家击杀时发言");
 
             CfgPlayerTitle = Config.Bind("Prompts", "PlayerTitle", "指挥官",
                 "玩家称呼（我方角色对玩家的称呼；玩家默认是我方战地最高指挥官）");

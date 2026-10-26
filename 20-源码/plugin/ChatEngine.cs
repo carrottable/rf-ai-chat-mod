@@ -113,6 +113,14 @@ namespace RF.AiChat
         private static bool _matchEnded;
         private static bool _warned401 = false;   // 第28轮：本局是否已提示过 401（Key 无效），避免刷屏
 
+        // ★ v1.1.2：主动发言名额（蓝/红独立自定义）与性能统计
+        private static readonly Dictionary<string, HashSet<string>> _activeSpeakerNames
+            = new Dictionary<string, HashSet<string>>();
+        private static bool _activeRosterInit;
+        private static bool _allowSilentSpeakers;   // 本次事件是"击杀玩家/被玩家击杀"→ 允许名单外发言
+        private static int _quotaDropped;
+        private static float _lastQuotaLog = -999f;
+
         // 由游戏内设置决定（脚本通过 cfg 事件同步过来）
         internal static string LangCode = "zh";   // zh / en
         internal static int FreqLevel = 1;        // 0=少 1=正常 2=多
@@ -130,6 +138,8 @@ namespace RF.AiChat
             // （实测隐患：玩家被击杀后的下一条据点/闲聊台词会被误判成"优先 + 高亮"）
             _pendingPlayerInvolved = false;
             _pendingReason = "?";
+            // ★ v1.1.2：玩家击杀/被击杀事件允许名单外 AI 发言（其余事件严格按名额）
+            _allowSilentSpeakers = IsTrue(Val(f, "pkiller")) || IsTrue(Val(f, "pvictim"));
             try { DebugAddEvent(t, f); } catch (Exception) { }   // ★ 第37轮：记录到调试窗口的事件流
             try
             {
@@ -152,6 +162,7 @@ namespace RF.AiChat
                 // ★ 第58轮：事件处理完统一复位（即使 handler 提前 return，也不会把标记带进下一次 Tick）
                 _pendingPlayerInvolved = false;
                 _pendingReason = "?";
+                _allowSilentSpeakers = false;
             }
             catch (Exception e)
             {
@@ -163,6 +174,20 @@ namespace RF.AiChat
         internal static void Tick()
         {
             if (!AiChatPlugin.CfgEnableChat.Value) return;
+            // ★ v1.1.2：发言名额/性能统计（每 10 秒一条，别每帧刷日志）
+            if (_activeRosterInit && UnityEngine.Time.unscaledTime - _lastQuotaLog >= 10f)
+            {
+                _lastQuotaLog = UnityEngine.Time.unscaledTime;
+                int qb = QuotaForTeam("Blue"), qr = QuotaForTeam("Red");
+                int sb = ActiveSet("Blue").Count, sr = ActiveSet("Red").Count;
+                lock (Sync)
+                {
+                    AiChatPlugin.Log.LogInfo("[发言名额] 蓝=" + qb + "/已选" + sb
+                        + " 红=" + qr + "/已选" + sr
+                        + " 队列=" + Requests.Count + " 待显示=" + Ready.Count
+                        + " 已出=" + _linesOut + " 名额外丢弃=" + _quotaDropped);
+                }
+            }
             // ★ 第73轮：开局播报（每局一次，等 AI 生成后）
             if (!_openingDone && _openingAt > 0f && UnityEngine.Time.unscaledTime >= _openingAt)
             {
@@ -280,7 +305,10 @@ namespace RF.AiChat
             lock (Sync)
             {
                 return "bots=" + Roster.Count + ";req=" + Requests.Count + ";ready=" + Ready.Count
-                    + ";calls=" + _apiCalls + ";fail=" + _fails + ";lines=" + _linesOut + ";drop=" + _dropped;
+                    + ";calls=" + _apiCalls + ";fail=" + _fails + ";lines=" + _linesOut + ";drop=" + _dropped
+                    + ";qb=" + QuotaForTeam("Blue") + ";qr=" + QuotaForTeam("Red")
+                    + ";sb=" + ActiveSet("Blue").Count + ";sr=" + ActiveSet("Red").Count
+                    + ";qdrop=" + _quotaDropped;
             }
         }
 
@@ -297,6 +325,14 @@ namespace RF.AiChat
             _sysMsgsSinceReply = 0;
             _sysBatches.Clear();       // ★ 第88轮：清掉上一局遗留的播报回应批次
             CleanHistory.Clear();      // ★ 第88轮：导出历史按局清空（避免跨局混杂）
+            // ★ v1.1.2：每局重新抽主动发言名单；设置改动下一局生效
+            _activeSpeakerNames.Clear();
+            _activeRosterInit = false;
+            _allowSilentSpeakers = false;
+            _quotaDropped = 0;
+            _lastQuotaLog = -999f;
+            AiChatPlugin.Log.LogInfo("[发言名额] 本局配额：蓝=" + QuotaForTeam("Blue")
+                + " 红=" + QuotaForTeam("Red") + "（0-128，名单外仅玩家击杀/被杀例外）");
             string urlOv = Val(f, "apiUrl");
             if (urlOv.Length > 0) { ApiUrlOverride = urlOv; AiChatPlugin.Log.LogInfo("[AiChat][引擎] 使用模组设置里的 API 地址"); }
             string keyOv = Val(f, "apiKey");
@@ -1294,6 +1330,15 @@ namespace RF.AiChat
             if (!b.IsAlive && !AllowDeadSpeak() && !IsDeathLine(_pendingReason)) return;
             if (b.IsPlayer) return;                 // 绝不替玩家发言
             if (depth > 3) return;                  // @ 链防死循环
+            // ★ v1.1.2：非主动发言名单内 → 静默（玩家击杀/被击杀事件例外）
+            if (!_allowSilentSpeakers && !IsActiveSpeaker(b))
+            {
+                _quotaDropped++;
+                if (_quotaDropped == 1 || _quotaDropped % 50 == 0)
+                    AiChatPlugin.Log.LogInfo("[发言名额] 静默丢弃 #" + _quotaDropped
+                        + "：" + b.Name + "（team=" + b.Team + "）");
+                return;
+            }
             float now = UnityEngine.Time.time;
             float botCd = AiChatPlugin.CfgBotCooldown.Value;
             // 与玩家有关（击杀/被杀/回应玩家/多杀）：把 30 秒冷却放宽到 8 秒，
@@ -2128,6 +2173,88 @@ namespace RF.AiChat
             lock (Sync) { return new List<BotInfo>(Roster.Values); }
         }
 
+        // ------------------------------------------------------------ 主动发言名额（v1.1.2）
+
+        private static int QuotaForTeam(string team)
+        {
+            int v = 30;
+            try
+            {
+                if (team == "Red")
+                {
+                    if (AiChatPlugin.CfgActiveSpeakerLimitRed != null) v = AiChatPlugin.CfgActiveSpeakerLimitRed.Value;
+                }
+                else
+                {
+                    if (AiChatPlugin.CfgActiveSpeakerLimitBlue != null) v = AiChatPlugin.CfgActiveSpeakerLimitBlue.Value;
+                }
+            }
+            catch (Exception) { }
+            if (v < 0) v = 0;
+            if (v > 128) v = 128;
+            return v;
+        }
+
+        private static HashSet<string> ActiveSet(string team)
+        {
+            HashSet<string> set;
+            if (!_activeSpeakerNames.TryGetValue(team, out set))
+            {
+                set = new HashSet<string>();
+                _activeSpeakerNames[team] = set;
+            }
+            return set;
+        }
+
+        private static void InitActiveRosterIfNeeded()
+        {
+            if (_activeRosterInit) return;
+            List<BotInfo> all = AllBots();
+            if (all.Count == 0) return;   // 等士兵出现后再抽
+            _activeRosterInit = true;
+            string[] teams = new string[] { "Blue", "Red" };
+            for (int ti = 0; ti < teams.Length; ti++)
+            {
+                string team = teams[ti];
+                List<BotInfo> pool = new List<BotInfo>();
+                for (int i = 0; i < all.Count; i++)
+                {
+                    BotInfo b = all[i];
+                    if (b != null && !b.IsPlayer && b.Team == team) pool.Add(b);
+                }
+                for (int i = pool.Count - 1; i > 0; i--)
+                {
+                    int j = UnityEngine.Random.Range(0, i + 1);
+                    BotInfo tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+                }
+                int quota = QuotaForTeam(team);
+                int take = pool.Count < quota ? pool.Count : quota;
+                HashSet<string> set = ActiveSet(team);
+                for (int i = 0; i < take; i++) set.Add(pool[i].Name);
+            }
+            AiChatPlugin.Log.LogInfo("[发言名额] 已抽取本局名单：蓝=" + ActiveSet("Blue").Count
+                + " 红=" + ActiveSet("Red").Count + "（配额 蓝=" + QuotaForTeam("Blue")
+                + " 红=" + QuotaForTeam("Red") + "）");
+        }
+
+        // 是否允许主动发言；名单未满时允许新出现的兵补位（复活潮/中途加入不会全被误伤）
+        private static bool IsActiveSpeaker(BotInfo b)
+        {
+            if (b == null || b.IsPlayer) return false;
+            InitActiveRosterIfNeeded();
+            string team = (b.Team == "Red") ? "Red" : "Blue";
+            HashSet<string> other = ActiveSet((team == "Red") ? "Blue" : "Red");
+            other.Remove(b.Name);   // 换队后从旧队名单移除
+            HashSet<string> set = ActiveSet(team);
+            if (set.Contains(b.Name)) return true;
+            if (set.Count < QuotaForTeam(team))
+            {
+                set.Add(b.Name);
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>优先挑"冷却已好"的士兵：否则事件入队时会被冷却挡掉，表现为"该说话时没动静"</summary>
         private static BotInfo RandomBotReady()
         {
@@ -2137,6 +2264,7 @@ namespace RF.AiChat
             foreach (BotInfo b in AllBots())
             {
                 if (b.IsPlayer) continue;
+                if (!IsActiveSpeaker(b)) continue;
                 if (now - b.LastSay >= cd) ready.Add(b);
             }
             if (ready.Count == 0) return RandomBot();
@@ -2147,8 +2275,8 @@ namespace RF.AiChat
         {
             // 绝不能抽到玩家本人：抽到会导致这条台词被"绝不替玩家发言"静默丢弃（实测隐患）
             List<BotInfo> l = new List<BotInfo>();
-            foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b.IsAlive) l.Add(b);
-            if (l.Count == 0 && AllowDeadSpeak()) foreach (BotInfo b in AllBots()) if (!b.IsPlayer) l.Add(b);
+            foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b.IsAlive && IsActiveSpeaker(b)) l.Add(b);
+            if (l.Count == 0 && AllowDeadSpeak()) foreach (BotInfo b in AllBots()) if (!b.IsPlayer && IsActiveSpeaker(b)) l.Add(b);
             if (l.Count == 0) return null;
             return l[UnityEngine.Random.Range(0, l.Count)];
         }
@@ -2157,9 +2285,9 @@ namespace RF.AiChat
         {
             // ★ 第60轮：@ 目标只从队友里选——之前会抽到敌人，出现"@敌人来给我掩护"的荒谬台词
             List<BotInfo> l = new List<BotInfo>();
-            foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self && b.Team == self.Team && b.IsAlive) l.Add(b);
-            if (l.Count == 0) foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self && b.Team == self.Team) l.Add(b);
-            if (l.Count == 0 && AllowDeadSpeak()) foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self) l.Add(b);
+            foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self && b.Team == self.Team && b.IsAlive && IsActiveSpeaker(b)) l.Add(b);
+            if (l.Count == 0) foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self && b.Team == self.Team && IsActiveSpeaker(b)) l.Add(b);
+            if (l.Count == 0 && AllowDeadSpeak()) foreach (BotInfo b in AllBots()) if (!b.IsPlayer && b != self && IsActiveSpeaker(b)) l.Add(b);
             if (l.Count == 0) return null;
             for (int i = 0; i < 8; i++)
             {
