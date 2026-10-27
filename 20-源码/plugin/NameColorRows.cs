@@ -91,6 +91,7 @@ namespace RF.AiChat
         private static bool _fontRenamed;
         private static bool _bilingualDone;
         private static GameObject _deadAiRow;
+        private static GameObject _squadTagRow;
         private static GameObject _reportRow;
         private static GameObject _quotaBlueRow;
         private static GameObject _quotaRedRow;
@@ -131,6 +132,7 @@ namespace RF.AiChat
                 FixGameDropdowns(content);
                 HideMeaninglessToggle(content);
                 EnsureDeadAiToggle(content);
+                EnsureSquadTagToggle(content);
                 EnsureAutoReportRow(content);
                 EnsureQuotaRows(content);
                 if (_rows.Count == 3 && _rows[0] != null && _rows[0].transform.parent == content)
@@ -190,6 +192,7 @@ namespace RF.AiChat
                     TextMeshProUGUI t = all[i];
                     if (t == null) continue;
                     EnsureCjkFallback(t.font);
+                    AutoTranslatorCompat.Ignore(t);
                     if (t.text == null) continue;
                     string cur = t.text;
                     if (cur.Contains(" / ") || cur.Length == 0) continue;
@@ -515,6 +518,7 @@ namespace RF.AiChat
                 lt.font = valueTmp.font;
                 lt.fontSize = valueTmp.fontSize;
                 EnsureCjkFallback(lt.font);
+                AutoTranslatorCompat.Ignore(lt);
                 lt.alignment = TextAlignmentOptions.Center;
                 lt.enableWordWrapping = false;
                 lt.color = new Color(0.92f, 0.94f, 0.97f, 1f);
@@ -609,6 +613,7 @@ namespace RF.AiChat
                     {
                         tmps[i].text = title;
                         EnsureCjkFallback(tmps[i].font);
+                        AutoTranslatorCompat.Ignore(tmps[i]);
                         break;
                     }
                 }
@@ -649,6 +654,73 @@ namespace RF.AiChat
             {
                 if (AiChatPlugin.Log != null)
                     AiChatPlugin.Log.LogWarning("[发言名额] 行创建失败：" + e.Message);
+            }
+        }
+
+        // v1.1.3：AI 名字后显示 (x队) 的开关（克隆"开启 AI 对话"行）
+        private static void EnsureSquadTagToggle(Transform content)
+        {
+            try
+            {
+                if (_squadTagRow != null && _squadTagRow.transform.parent == content)
+                {
+                    Toggle tg0 = _squadTagRow.GetComponentInChildren<Toggle>(true);
+                    bool want = true;
+                    try { want = AiChatPlugin.CfgShowSquadTag == null || AiChatPlugin.CfgShowSquadTag.Value; } catch (Exception) { }
+                    if (tg0 != null && tg0.isOn != want) tg0.isOn = want;
+                    return;
+                }
+                GameObject template = null;
+                GameObject enableRow = null;
+                for (int i = 0; i < content.childCount; i++)
+                {
+                    Transform row = content.GetChild(i);
+                    if (row == null) continue;
+                    string label = RowLabel(row);
+                    if (label == null) continue;
+                    if (label.Contains("开启 AI 对话")) template = row.gameObject;
+                    else if (label.Contains("说话频率")) enableRow = row.gameObject;
+                }
+                if (template == null) return;
+                if (enableRow == null) enableRow = template;
+                GameObject clone = UnityEngine.Object.Instantiate(template, content);
+                clone.name = "AIChatSquadTagRow";
+                clone.transform.SetSiblingIndex(enableRow.transform.GetSiblingIndex() + 2);
+                TextMeshProUGUI[] tmps = clone.GetComponentsInChildren<TextMeshProUGUI>(true);
+                for (int i = 0; i < tmps.Length; i++)
+                {
+                    if (tmps[i] == null || tmps[i].text == null) continue;
+                    if (tmps[i].text.Contains("开启 AI 对话"))
+                    {
+                        tmps[i].text = "AI 小队编号显示 / Squad tag";
+                        EnsureCjkFallback(tmps[i].font);
+                        AutoTranslatorCompat.Ignore(tmps[i]);
+                        break;
+                    }
+                }
+                Toggle tg = clone.GetComponentInChildren<Toggle>(true);
+                if (tg != null)
+                {
+                    bool want = true;
+                    try { want = AiChatPlugin.CfgShowSquadTag == null || AiChatPlugin.CfgShowSquadTag.Value; } catch (Exception) { }
+                    tg.isOn = want;
+                    tg.onValueChanged.AddListener(new UnityEngine.Events.UnityAction<bool>(delegate (bool v)
+                    {
+                        try
+                        {
+                            if (AiChatPlugin.CfgShowSquadTag != null) AiChatPlugin.CfgShowSquadTag.Value = v;
+                            if (AiChatPlugin.Instance != null) AiChatPlugin.Instance.Config.Save();
+                        }
+                        catch (Exception) { }
+                    }));
+                }
+                clone.SetActive(true);
+                _squadTagRow = clone;
+                if (AiChatPlugin.Log != null) AiChatPlugin.Log.LogInfo("[AIChat][设置] 小队编号开关已插入");
+            }
+            catch (Exception e)
+            {
+                if (AiChatPlugin.Log != null) AiChatPlugin.Log.LogWarning("[AIChat][设置] 小队编号开关创建失败：" + e.Message);
             }
         }
 
@@ -693,6 +765,7 @@ namespace RF.AiChat
                     {
                         tmps[i].text = "允许死亡AI说话 / Dead AI speak";
                         EnsureCjkFallback(tmps[i].font);
+                        AutoTranslatorCompat.Ignore(tmps[i]);
                         break;
                     }
                 }
@@ -853,6 +926,7 @@ namespace RF.AiChat
                 {
                     txt.font = valueTmp.font;
                     txt.fontSize = valueTmp.fontSize;
+                    AutoTranslatorCompat.Ignore(txt);
                     txt.enableWordWrapping = false;
                     txt.alignment = TextAlignmentOptions.Center;
                     txt.color = new Color(0.92f, 0.94f, 0.97f, 1f);

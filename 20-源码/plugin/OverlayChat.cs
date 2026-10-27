@@ -220,6 +220,7 @@ namespace RF.AiChat
                 if (string.IsNullOrEmpty(body)) return;
                 string safeBody = OneLine(body);
                 string safeName = OneLine(name);
+                if (nameStyle != 3 && !string.IsNullOrEmpty(safeName)) safeName += SquadTag.For(safeName);
                 if (safeBody.Length > 400) safeBody = safeBody.Substring(0, 400) + "…";
                 // ★ 第70轮：玩家自己的发言显示为"我：XXXX"（全角冒号，无空格）
                 string sep = (nameStyle == 3) ? "：" : ": ";
@@ -446,6 +447,7 @@ namespace RF.AiChat
                     _rt.offsetMax = Vector2.zero;
 
                     _text = _go.GetComponent<Text>();
+                    AutoTranslatorCompat.Ignore(_text);
                     _text.font = _font;
                     _text.fontSize = FONT_SIZE;
                     _text.alignment = TextAnchor.UpperLeft;

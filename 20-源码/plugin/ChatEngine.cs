@@ -318,6 +318,7 @@ namespace RF.AiChat
         private static void OnCfg(Dictionary<string, string> f)
         {
             try { OverlayChat.ClearForNewMatch(); } catch (Exception) { }   // ★ 第16轮②：每局开始清空显示层
+            try { SquadTag.ResetForNewMatch(); } catch (Exception) { }       // v1.1.3：每局重新缓存分队编号
             // ★ 第73轮：安排开局播报（等几秒让 AI 生成出来）
             _openingAt = UnityEngine.Time.unscaledTime + 6f;
             _openingDone = false;
@@ -649,6 +650,12 @@ namespace RF.AiChat
             // 距离过滤：只对玩家附近的阵亡做反应，否则 120 人全图会把聊天框刷爆
             // 友军误杀永远播报（玩家的队友被打，玩家通常最在意）
             int dist = IntOf(f, "dist", -1);
+            string killVeh = Val(f, "killveh");
+            // v1.1.3：被玩家击杀的 AI，在死亡事件当下读一次生前小队（只读一次，不做周期扫描）
+            if (pKiller && vb != null && !vb.IsPlayer)
+            {
+                try { SquadTag.CacheAtDeath(victimName); } catch (Exception) { }
+            }
             bool isTeamKill = sameTeam && kb != null;
             // ★ 第59轮：只要涉及玩家（pkiller/pvictim），一律无视 80 米距离过滤——
             //   否则玩家狙击远处的敌人时整条事件被丢弃（实测：打队友秒回、打敌人没反应）
@@ -659,8 +666,14 @@ namespace RF.AiChat
             }
             if (playerKillEvent)
             {
-                AiChatPlugin.Log.LogInfo("[AIChat][时序] 玩家击杀/阵亡事件进入（dist=" + dist + "，无视距离过滤）："
-                    + victimName + " ← " + killerName);
+                AiChatPlugin.Log.LogInfo("[AIChat][时序] 玩家击杀/阵亡事件进入（dist=" + dist
+                    + "，载具=" + (string.IsNullOrEmpty(killVeh) ? "(无)" : killVeh)
+                    + "，无视距离过滤）：" + victimName + " ← " + killerName);
+            }
+            if (pKiller && !vb.IsPlayer)
+            {
+                AiChatPlugin.Log.LogInfo("[AIChat][击杀信息] 玩家击杀 AI：受害者=" + victimName
+                    + " 距离=" + dist + " 米 载具=" + (string.IsNullOrEmpty(killVeh) ? "(无)" : killVeh));
             }
 
             string how = DescribeKill(dtype, weapon, headshot, splash);
@@ -685,13 +698,21 @@ namespace RF.AiChat
             string at = (kb != null && kb.Name != vb.Name) ? kb.Name : null;
             _pendingReason = isTeamKill ? "阵亡·被友军误杀" : ("阵亡·被敌人击杀（" + how + "）");
             _pendingPlayerInvolved = (pKiller || pVictim);
+            // ★ v1.1.3：玩家击杀时，把击杀距离/玩家乘坐的载具告诉受害者 AI
+            string playerKillInfo = "";
+            if (pKiller && !vb.IsPlayer)
+            {
+                if (dist >= 0) playerKillInfo += "玩家当时距离你约 " + dist + " 米。";
+                if (!string.IsNullOrEmpty(killVeh)) playerKillInfo += "玩家当时乘坐载具【" + killVeh + "】。";
+            }
             // 需求 9：必须针对"击杀方式"作出反应（实测模型容易忽略，所以单独列出并强调）
             Enqueue(vb, style, at, 0,
                 BuildSystem(vb, style),
                 "事件：你被" + (sameTeam ? "自己人 " : "敌人 ") + (kb != null ? kb.Name : "不明火力") + "打死了。"
+                + playerKillInfo
                 + "击杀方式：【" + how + "】。你的战绩：" + vb.Kills + " 杀 " + vb.Deaths + " 死。"
                 + "硬性要求：必须针对【" + how + "】这个击杀方式作出反应（被爆头就抱怨爆头、被炸就说被炸飞、"
-                + "被车碾就骂开车的、摔死就自嘲），不要只说「我又死了」。",
+                + "被车碾就骂开车的、摔死就自嘲），如果玩家乘坐了载具，要提到载具名，不要只说「我又死了」。",
                 0);
             if (pKiller || pVictim)
                 AiChatPlugin.Log.LogInfo("[AIChat][必回] 规则1/3 受害者回应入队：" + (vb != null ? vb.Name : "?")
@@ -1220,15 +1241,6 @@ namespace RF.AiChat
             StringBuilder sb = new StringBuilder();
             string global = BuildGlobalRules();
             if (global.Length > 0) sb.Append(global);
-            // ★ 第56轮：常识库（可编辑，追加在全局规则之后）
-            string kb = KnowledgeBase.Text;
-            if (kb.Length > 0)
-            {
-                if (kb.Length > 2600) kb = kb.Substring(0, 2600);
-                if (sb.Length > 0) sb.Append('\n');
-                sb.Append("【常识库】");
-                sb.Append(kb);
-            }
             string teamCtx = TeamContextPrompt(b);
             if (teamCtx.Length > 0) { if (sb.Length > 0) sb.Append('\n'); sb.Append(teamCtx); }
             string faction = FactionPrompt(b.Team);
@@ -1353,6 +1365,11 @@ namespace RF.AiChat
                 BotInfo other = RandomOther(b);
                 if (other != null && !other.IsPlayer) at = other.Name;
             }
+
+            // ★ v1.1.3：只把当前事件需要的常识模块塞进系统提示词
+            string kbSelected = KnowledgeBase.SelectFor(usr + "\n" + (_pendingReason ?? ""));
+            if (!string.IsNullOrEmpty(kbSelected))
+                sys = (sys == null ? "" : sys) + "\n\n【常识库·当前场景】\n" + kbSelected;
 
             LineRequest r = new LineRequest();
             r.Speaker = b.Name;

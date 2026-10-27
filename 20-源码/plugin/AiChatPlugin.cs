@@ -18,11 +18,11 @@ using UnityEngine;
 
 namespace RF.AiChat
 {
-    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.2")]
+    [BepInPlugin(GUID, "RF AiChat Bridge", "1.6.3")]
     public class AiChatPlugin : BaseUnityPlugin
     {
         public const string GUID = "rf.aichat.bridge";
-        public const string VERSION = "1.6.2";
+        public const string VERSION = "1.6.3";
 
         internal static ManualLogSource Log;
         internal static AiChatPlugin Instance;
@@ -53,6 +53,7 @@ namespace RF.AiChat
         internal static ConfigEntry<int> CfgSystemReplyChance;   // ★ 第73轮：系统播报被 AI 回应的概率（%）——第74轮起由 PerTeam 取代
         internal static ConfigEntry<int> CfgSystemReplyPerTeam;  // ★ 第74轮：每队派几名 AI 回应系统播报
         internal static ConfigEntry<bool> CfgAllowDeadAI;        // ★ 第74轮：是否允许死亡/未部署 AI 发言
+        internal static ConfigEntry<bool> CfgShowSquadTag;       // v1.1.3：名字后显示 (x队)
         internal static ConfigEntry<int> CfgAutoReportSeconds;   // ★ 第77轮：自动战报间隔（秒）
         internal static ConfigEntry<int> CfgActiveSpeakerLimitBlue;  // v1.1.2：蓝队主动发言名额
         internal static ConfigEntry<int> CfgActiveSpeakerLimitRed;   // v1.1.2：红队主动发言名额
@@ -138,6 +139,8 @@ namespace RF.AiChat
                 "每条系统播报：每队【至少】派几名 AI 回应（默认 5；人数不足时按实际人数）");
             CfgAllowDeadAI = Config.Bind("Chat", "AllowDeadAI", true,
                 "是否允许死亡/未部署的 AI 发言（默认 true；false 时阵亡者不再说话）");
+            CfgShowSquadTag = Config.Bind("UI", "ShowSquadTag", true,
+                "是否在 AI 名字后显示游戏自动分队编号，例如（3队）（默认 true）");
             CfgVerboseLog = Config.Bind("Log", "Verbose", false,
                 "详细日志：每条 AI 台词的原始响应/送出记录/时序都会写日志。默认 false（减少日志 I/O 造成的卡顿）；排查问题时再开");
             CfgAutoReportSeconds = Config.Bind("Chat", "AutoReportSeconds", 180,
@@ -392,6 +395,7 @@ namespace RF.AiChat
             try { PersonaWindow.Tick(); } catch (Exception) { }  // ★ 第50轮：人设分配设置窗口
             try { KBWindow.Tick(); } catch (Exception) { }       // ★ 第56轮：常识库编辑窗口
             try { NameColorRows.Tick(); } catch (Exception) { }  // ★ 第67轮：设置页"名称颜色"三行
+            try { AutoTranslatorCompat.Tick(); } catch (Exception) { }   // 兼容 AutoTranslator：补登记待忽略组件
             _lastUiMs = (DateTime.Now.Ticks - __t0) / 10000L;    // ★ 第88轮：修好 UI 耗时统计（之前漏赋值）
 
             // 对话引擎：按节流把已生成的台词交给脚本显示（每帧调用，开销极小）

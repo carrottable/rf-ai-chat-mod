@@ -2777,11 +2777,26 @@ function RFAiChat:onActorDied(actor, info, isSilentKill)
         if type(p) ~= "nil" and type(actor) ~= "nil" then dist = math.floor(ActorManager.ActorsDistance(actor, p)) end
     end)
 
+
     -- 玩家相关（需求：玩家击杀/被击杀必须立即且有反馈）
     local pVictim = "false"
     local pKiller = "false"
     if type(victim) ~= "nil" and victim.isPlayer then pVictim = "true" end
     if type(killer) ~= "nil" and killer.isPlayer then pKiller = "true" end
+
+    -- ★ v1.1.3：玩家击杀 AI 时，记录玩家当时乘坐的载具（供 AI 台词使用）
+    local killveh = ""
+    if pKiller == "true" then
+        pcall(function()
+            local pa = Player.actor
+            if type(pa) ~= "nil" then
+                local v = pa.activeVehicle
+                if type(v) ~= "nil" and type(v.name) ~= "nil" then
+                    killveh = tostring(v.name)
+                end
+            end
+        end)
+    end
     -- 玩家阵亡时自动收起输入框（否则死后鼠标还解锁着、操作被屏蔽）
     if pVictim == "true" and inputMode then closeInput() end
 
@@ -2814,7 +2829,7 @@ function RFAiChat:onActorDied(actor, info, isSilentKill)
         { "pvictim", pVictim }, { "pkiller", pKiller },
         { "weapon", weapon }, { "dtype", dtype },
         { "headshot", headshot }, { "splash", splash }, { "piercing", piercing },
-        { "dist", dist },
+        { "dist", dist }, { "killveh", killveh },
         { "vkills", victim and victim.kills or 0 }, { "vdeaths", victim and victim.deaths or 0 },
         { "kkills", killer and killer.kills or 0 }, { "kdeaths", killer and killer.deaths or 0 },
     })

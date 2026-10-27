@@ -37,6 +37,8 @@ export MSYS2_ARG_CONV_EXCL="*"
   -reference:"$(cygpath -w "$MANAGED/Assembly-CSharp.dll")" \
   -reference:"$(cygpath -w "$MANAGED/netstandard.dll")" \
   "$(cygpath -w "$SRC_DIR/AiChatPlugin.cs")" \
+  "$(cygpath -w "$SRC_DIR/AutoTranslatorCompat.cs")" \
+  "$(cygpath -w "$SRC_DIR/SquadTag.cs")" \
   "$(cygpath -w "$SRC_DIR/AiChatBridgeApi.cs")" \
   "$(cygpath -w "$SRC_DIR/BattleReport.cs")" \
   "$(cygpath -w "$SRC_DIR/DebugWindow.cs")" \
